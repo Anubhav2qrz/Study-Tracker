@@ -2,124 +2,140 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Flame, Clock, TrendingUp, CalendarDays } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import dayjs from "dayjs";
 
 export default function OverviewPanel() {
-  const [todayHours, setTodayHours] = useState(0);
-  const [weeklyProgress, setWeeklyProgress] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [nextExam, setNextExam] = useState(5); // keep same style
+  const [todayHours] = useState(0);
+  const [weeklyProgress] = useState(0);
+  const [streak] = useState(0);
+  const [nextExamDays, setNextExamDays] = useState<number | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOverview();
+    init();
   }, []);
 
-  const fetchOverview = async () => {
+  const init = async () => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
     if (!user) return;
 
-    const { data } = await supabase
-      .from("study_sessions")
-      .select("*")
-      .eq("user_id", user.id);
-
-    if (!data) return;
-
-    const todayStart = dayjs().startOf("day");
-    const weekStart = dayjs().startOf("week");
-
-    const todayTotal =
-      data
-        .filter((s) => dayjs(s.created_at).isAfter(todayStart))
-        .reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
-
-    setTodayHours(Number(todayTotal.toFixed(1)));
-
-    const weekTotal =
-      data
-        .filter((s) => dayjs(s.created_at).isAfter(weekStart))
-        .reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
-
-    const progress = Math.min((weekTotal / 20) * 100, 100); // 20h weekly goal
-    setWeeklyProgress(progress);
-
-    const uniqueDays = new Set(
-      data.map((s) => dayjs(s.created_at).format("YYYY-MM-DD"))
-    );
-
-    let streakCount = 0;
-    let current = dayjs();
-
-    while (uniqueDays.has(current.format("YYYY-MM-DD"))) {
-      streakCount++;
-      current = current.subtract(1, "day");
-    }
-
-    setStreak(streakCount);
+    setUserId(user.id);
+    fetchExam(user.id);
   };
 
-  const stats = [
-    {
-      label: "Today's Hours",
-      value: `${todayHours}h`,
-      icon: Clock,
-      color: "text-neon-blue",
-    },
-    {
-      label: "Weekly Progress",
-      value: `${Math.round(weeklyProgress)}%`,
-      icon: TrendingUp,
-      color: "text-primary",
-    },
-    {
-      label: "Study Streak",
-      value: `${streak} days`,
-      icon: Flame,
-      color: "text-warning",
-    },
-    {
-      label: "Next Exam",
-      value: `${nextExam} days`,
-      icon: CalendarDays,
-      color: "text-accent",
-    },
-  ];
+  const fetchExam = async (uid: string) => {
+    const { data } = await supabase
+      .from("exams")
+      .select("*")
+      .eq("user_id", uid)
+      .single();
+
+    if (data?.exam_date) {
+      const today = new Date();
+      const examDate = new Date(data.exam_date);
+      const diff = Math.ceil(
+        (examDate.getTime() - today.getTime()) /
+          (1000 * 60 * 60 * 24)
+      );
+
+      setNextExamDays(diff >= 0 ? diff : 0);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Dashboard Overview</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          <motion.div
-            key={s.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className="glass-card-hover p-5"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">
-                {s.label}
-              </span>
-              <s.icon size={18} className={s.color} />
-            </div>
+        {/* Today's Hours */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card-hover p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-muted-foreground">
+              Today's Hours
+            </span>
+            <Clock size={18} />
+          </div>
+          <p className="text-3xl font-bold">{todayHours}h</p>
+        </motion.div>
 
-            <p className="text-3xl font-bold">{s.value}</p>
+        {/* Weekly Progress */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card-hover p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-muted-foreground">
+              Weekly Progress
+            </span>
+            <TrendingUp size={18} />
+          </div>
+          <p className="text-3xl font-bold">{weeklyProgress}%</p>
 
-            {s.label === "Weekly Progress" && (
-              <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${weeklyProgress}%` }}
-                  transition={{ delay: 0.5, duration: 0.8, ease: "easeOut" }}
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
-                />
-              </div>
-            )}
-          </motion.div>
-        ))}
+          <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${weeklyProgress}%` }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
+            />
+          </div>
+        </motion.div>
+
+        {/* Study Streak */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card-hover p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-muted-foreground">
+              Study Streak
+            </span>
+            <Flame size={18} />
+          </div>
+          <p className="text-3xl font-bold">{streak} days</p>
+        </motion.div>
+
+        {/* Next Exam */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card-hover p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-muted-foreground">
+              Next Exam
+            </span>
+            <CalendarDays size={18} />
+          </div>
+
+          <p className="text-3xl font-bold">
+            {nextExamDays !== null
+              ? `${nextExamDays} days`
+              : "Not set"}
+          </p>
+
+          {/* Date Picker */}
+          <input
+            type="date"
+            className="mt-3 text-sm bg-muted rounded-lg px-3 py-1"
+            onChange={async (e) => {
+              if (!userId) return;
+
+              await supabase.from("exams").upsert({
+                user_id: userId,
+                exam_date: e.target.value,
+              });
+
+              fetchExam(userId);
+            }}
+          />
+        </motion.div>
       </div>
     </div>
   );
