@@ -1,14 +1,95 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Flame, Clock, TrendingUp, CalendarDays } from "lucide-react";
-
-const stats = [
-  { label: "Today's Hours", value: "4.5h", icon: Clock, color: "text-neon-blue" },
-  { label: "Weekly Progress", value: "72%", icon: TrendingUp, color: "text-primary" },
-  { label: "Study Streak", value: "12 days", icon: Flame, color: "text-warning" },
-  { label: "Next Exam", value: "5 days", icon: CalendarDays, color: "text-accent" },
-];
+import { supabase } from "@/lib/supabase";
+import dayjs from "dayjs";
 
 export default function OverviewPanel() {
+  const [todayHours, setTodayHours] = useState(0);
+  const [weeklyProgress, setWeeklyProgress] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [nextExam, setNextExam] = useState(0);
+
+  useEffect(() => {
+    fetchOverview();
+  }, []);
+
+  const fetchOverview = async () => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (!user) return;
+
+    const todayStart = dayjs().startOf("day").toISOString();
+    const weekStart = dayjs().startOf("week").toISOString();
+
+    const { data } = await supabase
+      .from("study_sessions")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (!data) return;
+
+    // Today's hours
+    const today = data.filter((s) =>
+      dayjs(s.created_at).isAfter(todayStart)
+    );
+    const todayTotal =
+      today.reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
+
+    setTodayHours(Number(todayTotal.toFixed(1)));
+
+    // Weekly progress
+    const week = data.filter((s) =>
+      dayjs(s.created_at).isAfter(weekStart)
+    );
+    const weekTotal =
+      week.reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
+
+    setWeeklyProgress(Math.min((weekTotal / 20) * 100, 100)); // assume 20h weekly goal
+
+    // Simple streak logic
+    const uniqueDays = new Set(
+      data.map((s) => dayjs(s.created_at).format("YYYY-MM-DD"))
+    );
+
+    let streakCount = 0;
+    let currentDay = dayjs();
+
+    while (uniqueDays.has(currentDay.format("YYYY-MM-DD"))) {
+      streakCount++;
+      currentDay = currentDay.subtract(1, "day");
+    }
+
+    setStreak(streakCount);
+
+    // Example next exam countdown (fake future date for now)
+    const examDate = dayjs().add(5, "day");
+    setNextExam(examDate.diff(dayjs(), "day"));
+  };
+
+  const stats = [
+    {
+      label: "Today's Hours",
+      value: `${todayHours}h`,
+      icon: Clock,
+    },
+    {
+      label: "Weekly Progress",
+      value: `${Math.round(weeklyProgress)}%`,
+      icon: TrendingUp,
+    },
+    {
+      label: "Study Streak",
+      value: `${streak} days`,
+      icon: Flame,
+    },
+    {
+      label: "Next Exam",
+      value: `${nextExam} days`,
+      icon: CalendarDays,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Dashboard Overview</h2>
@@ -24,44 +105,23 @@ export default function OverviewPanel() {
           >
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-muted-foreground">{s.label}</span>
-              <s.icon size={18} className={s.color} />
+              <s.icon size={18} />
             </div>
+
             <p className="text-3xl font-bold">{s.value}</p>
+
             {s.label === "Weekly Progress" && (
               <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
                 <motion.div
                   initial={{ width: 0 }}
-                  animate={{ width: "72%" }}
-                  transition={{ delay: 0.5, duration: 0.8, ease: "easeOut" }}
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
+                  animate={{ width: `${weeklyProgress}%` }}
+                  transition={{ duration: 0.8 }}
+                  className="h-full bg-primary"
                 />
               </div>
             )}
           </motion.div>
         ))}
-      </div>
-
-      {/* Quick summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="glass-card p-6">
-          <h3 className="font-semibold mb-3">Today's Plan</h3>
-          <div className="space-y-3">
-            {["Math — Chapter 7 Review", "Physics — Lab Report", "CS — Algorithm Practice"].map((t) => (
-              <div key={t} className="flex items-center gap-3 text-sm text-muted-foreground">
-                <div className="w-2 h-2 rounded-full bg-primary" />
-                {t}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="glass-card p-6">
-          <h3 className="font-semibold mb-3">Recent Achievements</h3>
-          <div className="flex gap-3 flex-wrap">
-            {["🔥 7-Day Streak", "📚 10 Subjects", "⏱ 100 Hours"].map((b) => (
-              <span key={b} className="glass-card px-3 py-1.5 text-xs font-medium">{b}</span>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
