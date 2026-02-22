@@ -29,7 +29,7 @@ export default function SubjectManager() {
   const [newColor, setNewColor] = useState(colorOptions[0]);
   const [newTarget, setNewTarget] = useState("30");
 
-  // 🔥 Fetch Subjects
+  // 🔥 Fetch subjects from database
   useEffect(() => {
     fetchSubjects();
   }, []);
@@ -42,14 +42,18 @@ export default function SubjectManager() {
 
     if (!error && data) {
       setSubjects(data);
+    } else {
+      console.error(error);
     }
   };
 
-  // ➕ Add Subject
+  // ➕ Add subject
   const addSubject = async () => {
     if (!newName.trim()) return;
 
-    const user = (await supabase.auth.getUser()).data.user;
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
     if (!user) return;
 
     const { error } = await supabase.from("subjects").insert({
@@ -60,14 +64,17 @@ export default function SubjectManager() {
       user_id: user.id,
     });
 
-    if (!error) {
-      fetchSubjects();
-      setNewName("");
-      setAdding(false);
+    if (error) {
+      console.error(error);
+      return;
     }
+
+    setNewName("");
+    setAdding(false);
+    fetchSubjects();
   };
 
-  // 🗑 Delete Subject
+  // 🗑 Delete subject
   const remove = async (id: string) => {
     await supabase.from("subjects").delete().eq("id", id);
     fetchSubjects();
@@ -75,6 +82,7 @@ export default function SubjectManager() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Subjects</h2>
 
@@ -87,13 +95,14 @@ export default function SubjectManager() {
         </button>
       </div>
 
+      {/* Add Subject Form */}
       <AnimatePresence>
         {adding && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="p-5 space-y-4 border rounded-xl"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="p-5 space-y-4 border rounded-xl overflow-hidden"
           >
             <input
               value={newName}
@@ -107,8 +116,8 @@ export default function SubjectManager() {
                 <button
                   key={c}
                   onClick={() => setNewColor(c)}
-                  className={`w-7 h-7 rounded-full ${
-                    newColor === c ? "ring-2 ring-black" : ""
+                  className={`w-7 h-7 rounded-full transition-transform ${
+                    newColor === c ? "scale-125 ring-2 ring-foreground/40" : ""
                   }`}
                   style={{ background: c }}
                 />
@@ -132,26 +141,72 @@ export default function SubjectManager() {
         )}
       </AnimatePresence>
 
+      {/* Subject Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {subjects.map((s) => {
           const pct = Math.min((s.hours / s.target) * 100, 100);
+          const circumference = 2 * Math.PI * 36;
 
           return (
             <motion.div
               key={s.id}
               layout
-              className="p-5 border rounded-xl flex items-center justify-between"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="p-5 border rounded-xl flex items-center gap-5 bg-card"
             >
-              <div>
-                <h3 className="font-semibold">{s.name}</h3>
+              {/* Circular Progress */}
+              <div className="relative w-20 h-20 shrink-0">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="36"
+                    fill="none"
+                    stroke="hsl(var(--muted))"
+                    strokeWidth="6"
+                  />
+                  <motion.circle
+                    cx="40"
+                    cy="40"
+                    r="36"
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    initial={{ strokeDashoffset: circumference }}
+                    animate={{
+                      strokeDashoffset:
+                        circumference - (circumference * pct) / 100,
+                    }}
+                    transition={{ duration: 1 }}
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold">
+                  {Math.round(pct)}%
+                </span>
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <div
+                    className="w-3 h-3 rounded-full shrink-0"
+                    style={{ background: s.color }}
+                  />
+                  <h3 className="font-semibold truncate">{s.name}</h3>
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  {s.hours}h / {s.target}h
+                  {s.hours}h / {s.target}h studied
                 </p>
               </div>
 
+              {/* Delete */}
               <button
                 onClick={() => remove(s.id)}
-                className="text-red-500"
+                className="text-red-500 hover:scale-110 transition-transform"
               >
                 <Trash2 size={16} />
               </button>
