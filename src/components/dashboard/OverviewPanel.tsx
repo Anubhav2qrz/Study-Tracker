@@ -8,6 +8,7 @@ export default function OverviewPanel() {
   const [weeklyProgress] = useState(0);
   const [streak] = useState(0);
   const [nextExamDays, setNextExamDays] = useState<number | null>(null);
+  const [examDate, setExamDate] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,22 +25,40 @@ export default function OverviewPanel() {
   };
 
   const fetchExam = async (uid: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("exams")
       .select("*")
       .eq("user_id", uid)
-      .single();
+      .limit(1);
 
-    if (data?.exam_date) {
+    if (!error && data && data.length > 0) {
+      const savedDate = data[0].exam_date;
+      setExamDate(savedDate);
+
       const today = new Date();
-      const examDate = new Date(data.exam_date);
+      const exam = new Date(savedDate);
+
       const diff = Math.ceil(
-        (examDate.getTime() - today.getTime()) /
+        (exam.getTime() - today.getTime()) /
           (1000 * 60 * 60 * 24)
       );
 
       setNextExamDays(diff >= 0 ? diff : 0);
     }
+  };
+
+  const handleDateChange = async (date: string) => {
+    if (!userId) return;
+
+    // Delete old exam row first (prevents duplicates)
+    await supabase.from("exams").delete().eq("user_id", userId);
+
+    await supabase.from("exams").insert({
+      user_id: userId,
+      exam_date: date,
+    });
+
+    fetchExam(userId);
   };
 
   return (
@@ -75,15 +94,6 @@ export default function OverviewPanel() {
             <TrendingUp size={18} />
           </div>
           <p className="text-3xl font-bold">{weeklyProgress}%</p>
-
-          <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${weeklyProgress}%` }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
-            />
-          </div>
         </motion.div>
 
         {/* Study Streak */}
@@ -120,20 +130,13 @@ export default function OverviewPanel() {
               : "Not set"}
           </p>
 
-          {/* Date Picker */}
           <input
             type="date"
+            value={examDate || ""}
             className="mt-3 text-sm bg-muted rounded-lg px-3 py-1"
-            onChange={async (e) => {
-              if (!userId) return;
-
-              await supabase.from("exams").upsert({
-                user_id: userId,
-                exam_date: e.target.value,
-              });
-
-              fetchExam(userId);
-            }}
+            onChange={(e) =>
+              handleDateChange(e.target.value)
+            }
           />
         </motion.div>
       </div>
