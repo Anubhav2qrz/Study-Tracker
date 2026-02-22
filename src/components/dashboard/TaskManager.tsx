@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { Plus, Check, Trash2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface Task {
   id: string;
@@ -8,28 +9,65 @@ interface Task {
   done: boolean;
 }
 
-const initialTasks: Task[] = [
-  { id: "1", text: "Review Calculus Chapter 5", done: false },
-  { id: "2", text: "Complete Physics problem set", done: true },
-  { id: "3", text: "Read CS lecture notes", done: false },
-  { id: "4", text: "Practice essay writing", done: false },
-];
-
 export default function TaskManager() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [input, setInput] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const addTask = () => {
-    if (!input.trim()) return;
-    setTasks((prev) => [...prev, { id: Date.now().toString(), text: input, done: false }]);
+  useEffect(() => {
+    init();
+  }, []);
+
+  const init = async () => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (!user) return;
+
+    setUserId(user.id);
+    fetchTasks(user.id);
+    subscribeToChanges(user.id);
+  };
+
+  const fetchTasks = async (uid: string) => {
+    const { data } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: true });
+
+    if (data) setTasks(data);
+  };
+
+  const subscribeToChanges = (uid: string) => {
+    supabase
+      .channel("tasks-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${uid}` },
+        () => fetchTasks(uid)
+      )
+      .subscribe();
+  };
+
+  const addTask = async () => {
+    if (!input.trim() || !userId) return;
+
+    await supabase.from("tasks").insert({
+      text: input,
+      done: false,
+      user_id: userId,
+    });
+
     setInput("");
   };
 
-  const toggle = (id: string) =>
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  const toggle = async (id: string, current: boolean) => {
+    await supabase.from("tasks").update({ done: !current }).eq("id", id);
+  };
 
-  const remove = (id: string) =>
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+  const remove = async (id: string) => {
+    await supabase.from("tasks").delete().eq("id", id);
+  };
 
   const completed = tasks.filter((t) => t.done).length;
 
@@ -42,7 +80,6 @@ export default function TaskManager() {
         </span>
       </div>
 
-      {/* Progress */}
       <div className="h-2 rounded-full bg-muted overflow-hidden">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
@@ -51,7 +88,6 @@ export default function TaskManager() {
         />
       </div>
 
-      {/* Add task */}
       <div className="flex gap-3">
         <input
           value={input}
@@ -70,7 +106,6 @@ export default function TaskManager() {
         </motion.button>
       </div>
 
-      {/* Task list */}
       <Reorder.Group axis="y" values={tasks} onReorder={setTasks} className="space-y-2">
         <AnimatePresence>
           {tasks.map((task) => (
@@ -83,7 +118,7 @@ export default function TaskManager() {
               className="glass-card-hover p-4 flex items-center gap-3 cursor-grab active:cursor-grabbing"
             >
               <button
-                onClick={() => toggle(task.id)}
+                onClick={() => toggle(task.id, task.done)}
                 className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${
                   task.done
                     ? "bg-primary border-primary"
@@ -92,10 +127,15 @@ export default function TaskManager() {
               >
                 {task.done && <Check size={14} className="text-primary-foreground" />}
               </button>
+
               <span className={`flex-1 text-sm ${task.done ? "line-through text-muted-foreground" : ""}`}>
                 {task.text}
               </span>
-              <button onClick={() => remove(task.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1">
+
+              <button
+                onClick={() => remove(task.id)}
+                className="text-muted-foreground hover:text-destructive transition-colors p-1"
+              >
                 <Trash2 size={14} />
               </button>
             </Reorder.Item>
