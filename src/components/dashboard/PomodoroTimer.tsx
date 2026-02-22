@@ -1,104 +1,132 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, RotateCcw, Coffee } from "lucide-react";
-
-const WORK = 25 * 60;
-const BREAK = 5 * 60;
+import { supabase } from "@/lib/supabase";
 
 export default function PomodoroTimer() {
-  const [seconds, setSeconds] = useState(WORK);
+  const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [running, setRunning] = useState(false);
-  const [isBreak, setIsBreak] = useState(false);
-  const [sessions, setSessions] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const total = isBreak ? BREAK : WORK;
-  const pct = ((total - seconds) / total) * 100;
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-  const circumference = 2 * Math.PI * 140;
-
-  const reset = useCallback(() => {
-    setRunning(false);
-    setSeconds(isBreak ? BREAK : WORK);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  }, [isBreak]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState<string>("");
 
   useEffect(() => {
-    if (!running) return;
-    intervalRef.current = setInterval(() => {
-      setSeconds((s) => {
-        if (s <= 1) {
-          setRunning(false);
-          if (!isBreak) setSessions((p) => p + 1);
-          setIsBreak((b) => !b);
-          return isBreak ? WORK : BREAK;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [running, isBreak]);
+    fetchSubjects();
+  }, []);
+
+  useEffect(() => {
+    let interval: any;
+
+    if (running && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    }
+
+    if (timeLeft === 0 && running) {
+      handleSessionComplete();
+    }
+
+    return () => clearInterval(interval);
+  }, [running, timeLeft]);
+
+  const fetchSubjects = async () => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("subjects")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (data) {
+      setSubjects(data);
+      if (data.length > 0) {
+        setSelectedSubject(data[0].id);
+      }
+    }
+  };
+
+  const handleSessionComplete = async () => {
+    setRunning(false);
+    setTimeLeft(25 * 60);
+
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+    if (!user || !selectedSubject) return;
+
+    // 1️⃣ Save study session
+    await supabase.from("study_sessions").insert({
+      user_id: user.id,
+      subject_id: selectedSubject,
+      duration_minutes: 25,
+    });
+
+    // 2️⃣ Update subject total hours
+    const { data: subject } = await supabase
+      .from("subjects")
+      .select("hours")
+      .eq("id", selectedSubject)
+      .single();
+
+    if (subject) {
+      await supabase
+        .from("subjects")
+        .update({
+          hours: subject.hours + 25 / 60,
+        })
+        .eq("id", selectedSubject);
+    }
+
+    alert("Pomodoro complete! Session saved 🔥");
+  };
+
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
 
   return (
-    <div className="space-y-8 max-w-lg mx-auto text-center">
+    <div className="space-y-6">
       <h2 className="text-2xl font-bold">Pomodoro Timer</h2>
 
-      <div className="flex items-center justify-center gap-3 mb-2">
-        <span className={`text-sm font-medium px-3 py-1 rounded-full ${!isBreak ? "bg-primary/20 text-primary" : "text-muted-foreground"}`}>Focus</span>
-        <span className={`text-sm font-medium px-3 py-1 rounded-full ${isBreak ? "bg-success/20 text-success" : "text-muted-foreground"}`}>
-          <Coffee size={14} className="inline mr-1" />Break
-        </span>
-      </div>
+      {/* Subject Selector */}
+      <select
+        value={selectedSubject}
+        onChange={(e) => setSelectedSubject(e.target.value)}
+        className="bg-muted rounded-xl px-4 py-2"
+      >
+        {subjects.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
 
-      {/* Timer ring */}
-      <div className="relative w-72 h-72 mx-auto">
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 300 300">
-          <circle cx="150" cy="150" r="140" fill="none" stroke="hsl(var(--muted))" strokeWidth="8" />
-          <motion.circle
-            cx="150" cy="150" r="140"
-            fill="none"
-            stroke={isBreak ? "hsl(var(--success))" : "url(#timerGrad)"}
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            animate={{ strokeDashoffset: circumference - (circumference * pct) / 100 }}
-            transition={{ duration: 0.5 }}
-          />
-          <defs>
-            <linearGradient id="timerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="hsl(var(--primary))" />
-              <stop offset="100%" stopColor="hsl(var(--accent))" />
-            </linearGradient>
-          </defs>
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-6xl font-bold tracking-wider">{mm}:{ss}</span>
-          <span className="text-sm text-muted-foreground mt-2">{isBreak ? "Take a break" : "Stay focused"}</span>
-        </div>
-      </div>
+      {/* Timer */}
+      <div className="text-center">
+        <motion.div
+          initial={{ scale: 0.9 }}
+          animate={{ scale: 1 }}
+          className="text-6xl font-bold"
+        >
+          {minutes}:{seconds.toString().padStart(2, "0")}
+        </motion.div>
 
-      {/* Controls */}
-      <div className="flex items-center justify-center gap-4">
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={reset}
-          className="glass-card p-3 rounded-xl text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <RotateCcw size={20} />
-        </motion.button>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setRunning(!running)}
-          className="btn-glow text-primary-foreground p-5 rounded-2xl"
-        >
-          {running ? <Pause size={28} /> : <Play size={28} />}
-        </motion.button>
-        <div className="glass-card px-4 py-2 rounded-xl text-sm">
-          <span className="text-muted-foreground">Sessions:</span>{" "}
-          <span className="font-bold">{sessions}</span>
+        <div className="flex justify-center gap-4 mt-6">
+          <button
+            onClick={() => setRunning(true)}
+            className="bg-primary text-white px-6 py-2 rounded-xl"
+          >
+            Start
+          </button>
+
+          <button
+            onClick={() => {
+              setRunning(false);
+              setTimeLeft(25 * 60);
+            }}
+            className="bg-muted px-6 py-2 rounded-xl"
+          >
+            Reset
+          </button>
         </div>
       </div>
     </div>
