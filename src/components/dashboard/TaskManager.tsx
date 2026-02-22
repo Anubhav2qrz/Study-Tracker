@@ -14,40 +14,57 @@ export default function TaskManager() {
   const [input, setInput] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
 
+  // 🔥 Get user + initial fetch
   useEffect(() => {
+    const init = async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (!user) return;
+
+      setUserId(user.id);
+
+      const { data } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (data) setTasks(data);
+    };
+
     init();
   }, []);
 
-  const init = async () => {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-    if (!user) return;
+  // 🔥 REALTIME SUBSCRIPTION (production safe)
+  useEffect(() => {
+    if (!userId) return;
 
-    setUserId(user.id);
-    fetchTasks(user.id);
-    subscribeToChanges(user.id);
-  };
-
-  const fetchTasks = async (uid: string) => {
-    const { data } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: true });
-
-    if (data) setTasks(data);
-  };
-
-  const subscribeToChanges = (uid: string) => {
-    supabase
+    const channel = supabase
       .channel("tasks-realtime")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${uid}` },
-        () => fetchTasks(uid)
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `user_id=eq.${userId}`,
+        },
+        async () => {
+          const { data } = await supabase
+            .from("tasks")
+            .select("*")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: true });
+
+          if (data) setTasks(data);
+        }
       )
       .subscribe();
-  };
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const addTask = async () => {
     if (!input.trim() || !userId) return;
@@ -83,7 +100,11 @@ export default function TaskManager() {
       <div className="h-2 rounded-full bg-muted overflow-hidden">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
-          animate={{ width: tasks.length ? `${(completed / tasks.length) * 100}%` : "0%" }}
+          animate={{
+            width: tasks.length
+              ? `${(completed / tasks.length) * 100}%`
+              : "0%",
+          }}
           transition={{ duration: 0.5 }}
         />
       </div>
@@ -106,7 +127,12 @@ export default function TaskManager() {
         </motion.button>
       </div>
 
-      <Reorder.Group axis="y" values={tasks} onReorder={setTasks} className="space-y-2">
+      <Reorder.Group
+        axis="y"
+        values={tasks}
+        onReorder={setTasks}
+        className="space-y-2"
+      >
         <AnimatePresence>
           {tasks.map((task) => (
             <Reorder.Item
@@ -125,10 +151,21 @@ export default function TaskManager() {
                     : "border-muted-foreground/30 hover:border-primary/50"
                 }`}
               >
-                {task.done && <Check size={14} className="text-primary-foreground" />}
+                {task.done && (
+                  <Check
+                    size={14}
+                    className="text-primary-foreground"
+                  />
+                )}
               </button>
 
-              <span className={`flex-1 text-sm ${task.done ? "line-through text-muted-foreground" : ""}`}>
+              <span
+                className={`flex-1 text-sm ${
+                  task.done
+                    ? "line-through text-muted-foreground"
+                    : ""
+                }`}
+              >
                 {task.text}
               </span>
 
