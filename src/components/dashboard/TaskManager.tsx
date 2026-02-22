@@ -7,6 +7,8 @@ interface Task {
   id: string;
   text: string;
   done: boolean;
+  user_id: string;
+  created_at: string;
 }
 
 export default function TaskManager() {
@@ -14,66 +16,69 @@ export default function TaskManager() {
   const [input, setInput] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
 
-  // 🔥 Get user + initial fetch
   useEffect(() => {
+    let channel: any;
+
     const init = async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
       if (!user) return;
 
       setUserId(user.id);
 
-      const { data } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true });
+      await fetchTasks(user.id);
 
-      if (data) setTasks(data);
+      // 🔥 Subscribe to realtime
+      channel = supabase
+        .channel("tasks-realtime")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tasks",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            fetchTasks(user.id);
+          }
+        )
+        .subscribe();
     };
 
     init();
+
+    // Cleanup
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
-  // 🔥 REALTIME SUBSCRIPTION (production safe)
-  useEffect(() => {
-    if (!userId) return;
+  const fetchTasks = async (uid: string) => {
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: true });
 
-    const channel = supabase
-      .channel("tasks-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "tasks",
-          filter: `user_id=eq.${userId}`,
-        },
-        async () => {
-          const { data } = await supabase
-            .from("tasks")
-            .select("*")
-            .eq("user_id", userId)
-            .order("created_at", { ascending: true });
-
-          if (data) setTasks(data);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [userId]);
+    if (!error && data) {
+      setTasks(data);
+    }
+  };
 
   const addTask = async () => {
     if (!input.trim() || !userId) return;
 
-    await supabase.from("tasks").insert({
+    const { error } = await supabase.from("tasks").insert({
       text: input,
       done: false,
       user_id: userId,
     });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
 
     setInput("");
   };
@@ -127,12 +132,7 @@ export default function TaskManager() {
         </motion.button>
       </div>
 
-      <Reorder.Group
-        axis="y"
-        values={tasks}
-        onReorder={setTasks}
-        className="space-y-2"
-      >
+      <Reorder.Group axis="y" values={tasks} onReorder={setTasks} className="space-y-2">
         <AnimatePresence>
           {tasks.map((task) => (
             <Reorder.Item
@@ -152,18 +152,13 @@ export default function TaskManager() {
                 }`}
               >
                 {task.done && (
-                  <Check
-                    size={14}
-                    className="text-primary-foreground"
-                  />
+                  <Check size={14} className="text-primary-foreground" />
                 )}
               </button>
 
               <span
                 className={`flex-1 text-sm ${
-                  task.done
-                    ? "line-through text-muted-foreground"
-                    : ""
+                  task.done ? "line-through text-muted-foreground" : ""
                 }`}
               >
                 {task.text}
