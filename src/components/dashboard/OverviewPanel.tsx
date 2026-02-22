@@ -8,7 +8,7 @@ export default function OverviewPanel() {
   const [todayHours, setTodayHours] = useState(0);
   const [weeklyProgress, setWeeklyProgress] = useState(0);
   const [streak, setStreak] = useState(0);
-  const [nextExam, setNextExam] = useState(0);
+  const [nextExam, setNextExam] = useState(5); // keep same style
 
   useEffect(() => {
     fetchOverview();
@@ -19,9 +19,6 @@ export default function OverviewPanel() {
     const user = userData.user;
     if (!user) return;
 
-    const todayStart = dayjs().startOf("day").toISOString();
-    const weekStart = dayjs().startOf("week").toISOString();
-
     const { data } = await supabase
       .from("study_sessions")
       .select("*")
@@ -29,42 +26,37 @@ export default function OverviewPanel() {
 
     if (!data) return;
 
-    // Today's hours
-    const today = data.filter((s) =>
-      dayjs(s.created_at).isAfter(todayStart)
-    );
+    const todayStart = dayjs().startOf("day");
+    const weekStart = dayjs().startOf("week");
+
     const todayTotal =
-      today.reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
+      data
+        .filter((s) => dayjs(s.created_at).isAfter(todayStart))
+        .reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
 
     setTodayHours(Number(todayTotal.toFixed(1)));
 
-    // Weekly progress
-    const week = data.filter((s) =>
-      dayjs(s.created_at).isAfter(weekStart)
-    );
     const weekTotal =
-      week.reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
+      data
+        .filter((s) => dayjs(s.created_at).isAfter(weekStart))
+        .reduce((sum, s) => sum + s.duration_minutes, 0) / 60;
 
-    setWeeklyProgress(Math.min((weekTotal / 20) * 100, 100)); // assume 20h weekly goal
+    const progress = Math.min((weekTotal / 20) * 100, 100); // 20h weekly goal
+    setWeeklyProgress(progress);
 
-    // Simple streak logic
     const uniqueDays = new Set(
       data.map((s) => dayjs(s.created_at).format("YYYY-MM-DD"))
     );
 
     let streakCount = 0;
-    let currentDay = dayjs();
+    let current = dayjs();
 
-    while (uniqueDays.has(currentDay.format("YYYY-MM-DD"))) {
+    while (uniqueDays.has(current.format("YYYY-MM-DD"))) {
       streakCount++;
-      currentDay = currentDay.subtract(1, "day");
+      current = current.subtract(1, "day");
     }
 
     setStreak(streakCount);
-
-    // Example next exam countdown (fake future date for now)
-    const examDate = dayjs().add(5, "day");
-    setNextExam(examDate.diff(dayjs(), "day"));
   };
 
   const stats = [
@@ -72,21 +64,25 @@ export default function OverviewPanel() {
       label: "Today's Hours",
       value: `${todayHours}h`,
       icon: Clock,
+      color: "text-neon-blue",
     },
     {
       label: "Weekly Progress",
       value: `${Math.round(weeklyProgress)}%`,
       icon: TrendingUp,
+      color: "text-primary",
     },
     {
       label: "Study Streak",
       value: `${streak} days`,
       icon: Flame,
+      color: "text-warning",
     },
     {
       label: "Next Exam",
       value: `${nextExam} days`,
       icon: CalendarDays,
+      color: "text-accent",
     },
   ];
 
@@ -104,8 +100,10 @@ export default function OverviewPanel() {
             className="glass-card-hover p-5"
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">{s.label}</span>
-              <s.icon size={18} />
+              <span className="text-sm text-muted-foreground">
+                {s.label}
+              </span>
+              <s.icon size={18} className={s.color} />
             </div>
 
             <p className="text-3xl font-bold">{s.value}</p>
@@ -115,8 +113,8 @@ export default function OverviewPanel() {
                 <motion.div
                   initial={{ width: 0 }}
                   animate={{ width: `${weeklyProgress}%` }}
-                  transition={{ duration: 0.8 }}
-                  className="h-full bg-primary"
+                  transition={{ delay: 0.5, duration: 0.8, ease: "easeOut" }}
+                  className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
                 />
               </div>
             )}
